@@ -1,6 +1,6 @@
 
 
-export default class Vec2 {
+export class Vec2 {
 
   static FromObject(obj)
     { return new Vec2(obj.x, obj.y); }
@@ -30,7 +30,7 @@ export default class Vec2 {
     { this.x -= v.x; this.y -= v.y; return this; }
 
   ScaleBy(scalar)
-    { this.x *= scalar; this.y *= scalar; }
+    { this.x *= scalar; this.y *= scalar; return this; }
 
   DotProduct(v)
     { return this.x * v.x + this.y * v.y; }

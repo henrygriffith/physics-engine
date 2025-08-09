@@ -1,12 +1,12 @@
 import { Vec2 } from "../math/Vec2.js";
 
-export default class World {
+export class World {
   constructor({
     gravity = new Vec2(0, 800),
     solverIterations = 2,
     bounds = null, // { minX, minY, maxX, maxY } or null;
   } = {}) {
-    this._gravity = Vec2.fromObject(gravity);
+    this._gravity = Vec2.FromObject(gravity);
     this._solverIterations = solverIterations;
     this._bodies = [];
     this._bounds = bounds;
@@ -47,7 +47,7 @@ export default class World {
   // --------------------
   // Bounds
   Bounds()
-    { return this._bounds ? { ...this.bounds } : null; }
+    { return this._bounds ? { ...this._bounds } : null; }
   SetBounds(boundsOrNull)
     { this._bounds = boundsOrNull ? { ...boundsOrNull } : null; return this; }
 
@@ -74,18 +74,22 @@ export default class World {
 
       const invm = b.InverseMass();
       const F = b.Force(); // clone of external forces accumulated this frame.
+      const V = b.Velocity();
+      const P = b.Position();
+
+      if (!Number.isFinite(invm)) { console.warn("Bad invMass", invm, b); continue; }
+      if (!P || !V || !F) { console.warn("Missing vectors", { P, V, F, b }); continue; }
+
       const ax = g.x + F.x * invm;
       const ay = g.y + F.y * invm;
 
-      const V = b.Velocity();
       const vx = V.x + ax * dt;
       const vy = V.y + ay * dt;
       b.SetVelocityXY(vx, vy); // update velocity.
 
-      const P = b.Position();
       const px = P.x + vx * dt;
       const py = P.y + vy * dt;
-      P.SetPositionXY(px, py); // move using *new* velocity (semi-implicit Euler).
+      b.SetPositionXY(px, py); // move using *new* velocity (semi-implicit Euler).
 
       b.ClearAllForces();
     }
@@ -98,7 +102,7 @@ export default class World {
         const A = this._bodies[i];
         for (let j = i + 1; j < N; j++) {
           const B = this._bodies[j];
-          this._resolveCircleCircle(A, B);
+          this._ResolveCircleCircle(A, B);
         }
       }
     }
@@ -131,7 +135,7 @@ export default class World {
           b.SetVelocityXY(V2.x, -V2.y * e);
         } else if (P2.y + r > maxY) {
           b.SetPositionXY(P2.x, maxY - r);
-          b.SetVelocityXy(V2.x, -V2.y * e);
+          b.SetVelocityXY(V2.x, -V2.y * e);
         }
       }
     }
@@ -182,8 +186,8 @@ export default class World {
     const invSum = invA + invB;
     if (invSum > 0) {
       const corr = penetration / invSum;
-      if (invA > 0) A.SetPositionXY(PA.X - nx * corr * invA, PA.y - ny * corr * invA);
-      if (invB > 0) B.SetPositionXY(PB.X - nx * corr * invB, PB.y - ny * corr * invB);
+      if (invA > 0) A.SetPositionXY(PA.x - nx * corr * invA, PA.y - ny * corr * invA);
+      if (invB > 0) B.SetPositionXY(PB.x - nx * corr * invB, PB.y - ny * corr * invB);
     }
 
     // Relative velocity along normal

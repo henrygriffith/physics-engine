@@ -45,13 +45,13 @@ export class Body {
   Force()
     { return this._force.Clone(); }
   SetForceVec(vec)
-    { this._force = Vec2.FromObject(vec); }
+    { this._force = Vec2.FromObject(vec); return this; }
   SetForceXY(x, y)
     { this._force.SetXY(x, y); return this; }
   ApplyForceVec(vec)
-    { this._force.AddVector(vec); }
+    { this._force.AddVector(vec); return this; }
   ClearAllForces()
-    { this._force.setXY(0, 0); return this; }
+    { this._force.SetXY(0, 0); return this; }
 
   // ------------------
   // Mass
@@ -86,14 +86,14 @@ export class Body {
   Restitution()
     { return this._restitution; }
   SetRestitution(e)
-    { this._restitution = Math.max(0, Math.min(1, e)); } // clamp [0, 1]
+    { this._restitution = Math.max(0, Math.min(1, e)); return this; } // clamp [0, 1]
 
   // ------------------
   // Fixed State
   IsFixed()
     { return this._fixed; }
-  SetFixed() {
-    this._fixed = !!this._fixed;
+  SetFixed(fixed) {
+    this._fixed = !!fixed;
     if (fixed) this._inverseMass = 0;
     else this._inverseMass = this._mass > 0 ? 1 / this._mass : 0;
     return this;
