@@ -64,83 +64,32 @@ canvas.addEventListener('pointerdown', (e) => {
   SpawnBall(cssX, cssY, (Math.random() - 0.5) * 180, -220);
 });
 
-// let last = performance.now();
-// let paused = false;
-
-// function Loop(t) {
-//   const dt = Math.min((t - last) / 1000, 0.033) // seconds, clamp ~30 FPS max step.
-//   last = t;
-
-//   if (!paused)
-//     world.Step(dt);
-
-//   renderer.Clear();
-//   renderer.DrawBodies(world.Bodies());
-
-//   requestAnimationFrame(Loop);
-// }
-
-// requestAnimationFrame(Loop);
-
-window.addEventListener('keydown', (e) => {
-  if (e.key.toLowerCase() === 'p')
-    paused = !paused;
-})
-
-window.addEventListener('keydown', (e) => {
-  if (e.key.toLowerCase() === 'v') {
-    renderer.SetDebugOptions({ showVelocity: !renderer._showVelocity });
-  }
-});
-
-
-
 let last = performance.now();
-let frames = 0;
+let paused = false;
 
 function Loop(t) {
-  const dt = Math.min((t - last) / 1000, 0.033);
+  const dt = Math.min((t - last) / 1000, 0.033) // seconds, clamp ~30 FPS max step.
   last = t;
 
-  // 0) prove RAF is running
-  if ((frames++ % 60) === 0) console.log("tick dt=", dt.toFixed(3));
+  if (!paused)
+    world.Step(dt);
 
-  // 1) update physics
-  world.Step(dt);
-
-  // 2) clear
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  // 3A) HARD-CODED circle (should ALWAYS show)
-  ctx.beginPath();
-  ctx.arc(100, 80, 12, 0, Math.PI * 2);
-  ctx.fillStyle = "red";
-  ctx.fill();
-
-  // 3B) DRAW USING BODY FIELDS (bypass getters)
-  const arr = world.Bodies();
-  const b0 = arr[0];
-  if (!b0) console.warn("no bodies!");
-  else {
-    const p = b0._position || b0.position || (b0.Position && b0.Position());
-    const r = b0._radius || b0.radius || (b0.Radius && b0.Radius());
-    console.log("p,r =", p, r);
-
-    // draw lime if numbers look sane
-    if (p && Number.isFinite(p.x) && Number.isFinite(p.y) && Number.isFinite(r) && r > 0) {
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-      ctx.fillStyle = "lime";
-      ctx.fill();
-    } else {
-      console.warn("bad position/radius", { p, r });
-    }
-  }
-
-  // 3C) DRAW VIA RENDERER (if the two above show, but this doesn't, renderer is the bug)
   renderer.Clear();
   renderer.DrawBodies(world.Bodies());
 
   requestAnimationFrame(Loop);
 }
+
 requestAnimationFrame(Loop);
+
+window.addEventListener('keydown', (e) => {
+  if (e.key.toLowerCase() === 'p')
+    paused = !paused;
+  else if (e.key.toLowerCase() === 'v') {
+    renderer.SetDebugOptions({ showVelocity: !renderer._showVelocity });
+  }
+})
+
+window.addEventListener('keydown', (e) => {
+
+});

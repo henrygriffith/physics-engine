@@ -63,79 +63,93 @@ export class World {
     // p = p + v * dt      // update position with *new* velocity
 
   Step(dt) {
-    const g = this.Gravity();
+    if (!Number.isFinite(dt) || dt <= 0) return;
 
-    // Integrate
-    for (const b of this._bodies) {
-      if (b.IsFixed() || b.InverseMass() === 0) {
+    const SUBSTEPS = 2;                 // (4) substeps
+    const h = dt / SUBSTEPS;
+    const DAMPING = 0.02;               // mild velocity damping per second
+
+    for (let s = 0; s < SUBSTEPS; s++) {
+
+      // --- integrate (semi-implicit Euler) ---
+      for (const b of this._bodies) {
+        if (b.IsFixed() || b.InverseMass() === 0) { b.ClearAllForces(); continue; }
+
+        const invm = b.InverseMass();
+        const F = b.Force();            // copy
+        const V = b.Velocity();         // copy
+        const P = b.Position();         // copy
+
+        const ax = this._gravity.x + F.x * invm;
+        const ay = this._gravity.y + F.y * invm;
+
+        // update velocity
+        let vx = V.x + ax * h;
+        let vy = V.y + ay * h;
+
+        // damping (bleeds energy so things settle)
+        const damp = Math.max(0, 1 - DAMPING * h);
+        vx *= damp; vy *= damp;
+        b.SetVelocityXY(vx, vy);
+
+        // update position with NEW velocity (semi-implicit)
+        b.SetPositionXY(P.x + vx * h, P.y + vy * h);
+
         b.ClearAllForces();
-        continue;
       }
 
-      const invm = b.InverseMass();
-      const F = b.Force(); // clone of external forces accumulated this frame.
-      const V = b.Velocity();
-      const P = b.Position();
-
-      if (!Number.isFinite(invm)) { console.warn("Bad invMass", invm, b); continue; }
-      if (!P || !V || !F) { console.warn("Missing vectors", { P, V, F, b }); continue; }
-
-      const ax = g.x + F.x * invm;
-      const ay = g.y + F.y * invm;
-
-      const vx = V.x + ax * dt;
-      const vy = V.y + ay * dt;
-      b.SetVelocityXY(vx, vy); // update velocity.
-
-      const px = P.x + vx * dt;
-      const py = P.y + vy * dt;
-      b.SetPositionXY(px, py); // move using *new* velocity (semi-implicit Euler).
-
-      b.ClearAllForces();
-    }
-
-    // Collisions (naive all-pairs, circles only for now)
-    // all bodies are checked against eachother (O(n^2)).
-    const N = this._bodies.length;
-    for (let iter = 0; iter < this._solverIterations; iter++) {
-      for (let i = 0; i < N; i++) {
-        const A = this._bodies[i];
-        for (let j = i + 1; j < N; j++) {
-          const B = this._bodies[j];
-          this._ResolveCircleCircle(A, B);
+      // --- collisions (your existing all-pairs) ---
+      const N = this._bodies.length;
+      for (let iter = 0; iter < this._solverIterations; iter++) {
+        for (let i = 0; i < N; i++) {
+          const A = this._bodies[i];
+          for (let j = i + 1; j < N; j++) {
+            const B = this._bodies[j];
+            this._ResolveCircleCircle(A, B);
+          }
         }
       }
-    }
 
-    // World bounds. After pairwise collisions, clamp each body to the axis-aligned box
-    // and flip velocity components with restitution when it hits a wall.
-    if (this.Bounds()) {
-      const { minX, minY, maxX, maxY } = this.Bounds();
-      for (const b of this.Bodies()) {
-        if (b.IsFixed() || b.InverseMass() === 0)
-          continue;
+      // --- bounds with (2) resting threshold + (3) softer walls ---
+      const bounds = this._bounds;
+      if (bounds) {
+        const { minX, minY, maxX, maxY } = bounds;
+        const REST_VEL = 5; // px/s
 
-        const P = b.Position();
-        const V = b.Velocity();
-        const r = b.Radius();
-        const e = b.Restitution();
+        for (const b of this._bodies) {
+          if (b.IsFixed() || b.InverseMass() === 0) continue;
 
-        if (P.x - r < minX) {
-          b.SetPositionXY(minX + r, P.y);
-          b.SetVelocityXY(-V.x * e, V.y);
-        } else if (P.x + r > maxX) {
-          b.SetPositionXY(maxX - r, P.y);
-          b.SetVelocityXY(-V.x * e, V.y);
-        }
+          const p = b.Position();
+          const v = b.Velocity();
+          const r = b.Radius();
+          const wallBounce = Math.min(0.6, b.Restitution()); // (3)
 
-        const P2 = b.Position();
-        const V2 = b.Velocity();
-        if (P2.y - r < minY) {
-          b.SetPositionXY(P2.x, minY + r);
-          b.SetVelocityXY(V2.x, -V2.y * e);
-        } else if (P2.y + r > maxY) {
-          b.SetPositionXY(P2.x, maxY - r);
-          b.SetVelocityXY(V2.x, -V2.y * e);
+          // left
+          if (p.x - r < minX) {
+            b.SetPositionXY(minX + r + 0.001, p.y);
+            const newVx = -v.x * wallBounce;
+            b.SetVelocityXY(Math.abs(newVx) < REST_VEL ? 0 : newVx, v.y);
+          }
+          // right
+          else if (p.x + r > maxX) {
+            b.SetPositionXY(maxX - r - 0.001, p.y);
+            const newVx = -v.x * wallBounce;
+            b.SetVelocityXY(Math.abs(newVx) < REST_VEL ? 0 : newVx, v.y);
+          }
+
+          // top
+          const p2 = b.Position(), v2 = b.Velocity();
+          if (p2.y - r < minY) {
+            b.SetPositionXY(p2.x, minY + r + 0.001);
+            const newVy = -v2.y * wallBounce;
+            b.SetVelocityXY(v2.x, Math.abs(newVy) < REST_VEL ? 0 : newVy);
+          }
+          // bottom
+          else if (p2.y + r > maxY) {
+            b.SetPositionXY(p2.x, maxY - r - 0.001);
+            const newVy = -v2.y * wallBounce;
+            b.SetVelocityXY(v2.x, Math.abs(newVy) < REST_VEL ? 0 : newVy);
+          }
         }
       }
     }
@@ -148,72 +162,77 @@ export class World {
   // We'll need simple cheap test to see if overlap.
   // Only send overlapping AABB pairs to narrowphase for accurate collision math.
 
-  _ResolveCircleCircle(A, B) { // if two circles overlap, push them apart and apply a bounce impulse.
-    // Fixed bodies can still be hit, but won't move.
+  _ResolveCircleCircle(A, B) {
     const invA = A.InverseMass();
     const invB = B.InverseMass();
-    if (invA === 0 && invB === 0) // if both fixed, do nothing.
-      return;
+    if (invA === 0 && invB === 0) return;
 
     const PA = A.Position();
     const PB = B.Position();
     const rA = A.Radius();
     const rB = B.Radius();
 
-    const dx = PB.x - PA.x;
-    const dy = PB.y - PA.y;
-    const distSq = dx * dx + dy * dy;
+    let dx = PB.x - PA.x;
+    let dy = PB.y - PA.y;
     const r = rA + rB;
 
-    if (distSq <= 0) {
-      // same pos; nudge apart along arbitrary axis to avoid NaN normals
-      const nudge = 0.5 * r;
-      if (invA > 0) A.SetPositionXY(PA.x - nudge, PA.y);
-      if (invB > 0) B.SetPositionXY(PB.x + nudge, PB.y);
-      return;
+    let distSq = dx * dx + dy * dy;
+    if (distSq >= r * r) return; // no overlap
+
+    // --- robust normal ---
+    let dist = Math.sqrt(distSq);
+    let nx, ny;
+    if (dist < 1e-8) {
+      // almost same center: pick a stable arbitrary normal
+      nx = 1; ny = 0;
+      dist = r; // pretend they're exactly touching
+    } else {
+      nx = dx / dist; ny = dy / dist;
     }
 
-    if (distSq >= r * r) // no overlap;
-      return;
+    // --- penetration correction (Baumgarte-style) ---
+    const PENETRATION_SLOP = 0.01;  // ignore tiny overlaps
+    const BETA = 0.2;               // 0..1, fraction to correct per pass
+    const penetration = r - dist;
+    const corrMag = Math.max(penetration - PENETRATION_SLOP, 0) * BETA;
 
-    const dist = Math.sqrt(distSq);
-    const nx = dx / dist; // unit normal x
-    const ny = dy / dist; // unit normal y
-    const penetration = r - dist; // how much they overlap;
-
-    // Positional correction
-    // split the separation by inverse mass: lighter objects move more and fixed don't move.
     const invSum = invA + invB;
-    if (invSum > 0) {
-      const corr = penetration / invSum;
-      if (invA > 0) A.SetPositionXY(PA.x - nx * corr * invA, PA.y - ny * corr * invA);
-      if (invB > 0) B.SetPositionXY(PB.x - nx * corr * invB, PB.y - ny * corr * invB);
+    if (corrMag > 0 && invSum > 0) {
+      const corrA = corrMag * (invA / invSum);
+      const corrB = corrMag * (invB / invSum);
+      if (invA > 0) A.SetPositionXY(PA.x - nx * corrA, PA.y - ny * corrA);
+      if (invB > 0) B.SetPositionXY(PB.x + nx * corrB, PB.y + ny * corrB);
     }
 
-    // Relative velocity along normal
+    // --- relative normal velocity & restitution ---
     const VA = A.Velocity();
     const VB = B.Velocity();
     const rvx = VB.x - VA.x;
     const rvy = VB.y - VA.y;
     const velAlongNormal = rvx * nx + rvy * ny;
-    if (velAlongNormal > 0) // moving apart already -> no bounce.
-      return;
 
-    const e = Math.min(A.Restitution(), B.Restitution()); // bounciness of contact.
-    const j = (-(1 + e) * velAlongNormal) / (invSum || 1); // scalar impulse magnitude.
+    // if separating, no impulse
+    if (velAlongNormal > 0) return;
 
-    const impX = nx * j; // impulses
+    // only bounce on meaningful impacts (prevents jitter explosions)
+    const REST_VEL_THRESHOLD = 20; // px/s
+    const e = Math.min(A.Restitution(), B.Restitution());
+    const effRest = (Math.abs(velAlongNormal) > REST_VEL_THRESHOLD) ? e : 0;
+
+    // impulse scalar
+    const denom = invSum || 1;
+    let j = (-(1 + effRest) * velAlongNormal) / denom;
+
+    // clamp rare spikes
+    const MAX_IMPULSE = 1e3;
+    if (j >  MAX_IMPULSE) j =  MAX_IMPULSE;
+    if (j < -MAX_IMPULSE) j = -MAX_IMPULSE;
+
+    const impX = nx * j;
     const impY = ny * j;
 
-    // apply impulses opposite/along the normal, scaled by inverse mass.
     if (invA > 0) A.SetVelocityXY(VA.x - impX * invA, VA.y - impY * invA);
     if (invB > 0) B.SetVelocityXY(VB.x + impX * invB, VB.y + impY * invB);
-
-
-    // If two balls are moving into each other along n, the impulse cancels
-    // that normal component and adds a bounce based on 'e'.
-    // Tangential (sideways) velocity is unchanged here becacuse we haven't added friction yet.
-
   }
 
 }
