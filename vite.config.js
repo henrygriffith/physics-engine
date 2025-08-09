@@ -1,1 +1,6 @@
-export default { server: { open: true, } };
+import { defineConfig } from "vite"
+
+export default defineConfig({
+  root: 'sandbox',
+  server: { open: true, }
+})
